@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notion Focus Widget</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #37352f;
+            --primary-color: #eb5757;
+            --secondary-color: #f1f1ef;
+            --border-color: #e9e9e7;
+        }
+        body.dark {
+            --bg-color: #191919;
+            --text-color: #ffffff;
+            --primary-color: #ff7373;
+            --secondary-color: #2f2f2f;
+            --border-color: #373737;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.3s, color 0.3s;
+            overflow-x: hidden;
+            padding: 20px;
+        }
+        #widget-container {
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .timer-display {
+            font-size: 64px;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        .controls button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        .settings {
+            margin-top: 20px;
+            padding: 15px;
+            background: var(--secondary-color);
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        input {
+            width: 50px;
+            padding: 5px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-color);
+            color: var(--text-color);
+        }
+        .pro-section {
+            margin-top: 20px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 20px;
+            display: none;
+        }
+        .is-pro .pro-section {
+            display: block;
+        }
+        #chart-container {
+            width: 100%;
+            height: 200px;
+            margin-top: 20px;
+        }
+        #share-card {
+            position: fixed;
+            left: -9999px;
+            width: 300px;
+            padding: 20px;
+            background: var(--bg-color);
+            border: 2px solid var(--primary-color);
+            border-radius: 12px;
+            text-align: center;
+        }
+        .streak-badge {
+            font-size: 24px;
+            margin: 10px 0;
+        }
+        .mode-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            border: none;
+            color: var(--text-color);
+            cursor: pointer;
+            font-size: 20px;
+        }
+        .key-input {
+            width: 80%;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <button class="mode-toggle" id="theme-toggle">🌓</button>
+    
+    <div id="widget-container">
+        <div id="status-label">Focus</div>
+        <div class="timer-display" id="timer">25:00</div>
+        
+        <div class="controls">
+            <button id="start-btn">Start</button>
+            <button id="reset-btn">Reset</button>
+        </div>
+
+        <div class="settings">
+            Work: <input type="number" id="work-time" value="25"> 
+            Break: <input type="number" id="break-time" value="5">
+            <button id="update-times" style="font-size: 12px; padding: 5px 10px;">Update</button>
+        </div>
+
+        <div id="key-section">
+            <input type="text" id="license-key" class="key-input" placeholder="Enter Pro Key">
+            <button id="save-key" style="padding: 5px 10px; font-size: 12px;">Activate</button>
+        </div>
+
+        <div class="pro-section" id="pro-features">
+            <div class="streak-badge">🔥 <span id="streak-count">0</span> Day Streak</div>
+            <div id="chart-container">
+                <canvas id="weeklyChart"></canvas>
+            </div>
+            <button id="share-btn" style="margin-top: 15px; background: #007bff;">Share Progress</button>
+        </div>
+    </div>
+
+    <div id="share-card">
+        <h3 style="margin: 0; color: var(--primary-color);">FocusPro</h3>
+        <p id="share-date" style="font-size: 12px; margin: 5px 0; opacity: 0.7;"></p>
+        <div style="font-size: 48px; margin: 10px 0;">🔥 <span id="share-streak">0</span></div>
+        <p>Current Streak</p>
+        <div style="background: var(--secondary-color); padding: 10px; border-radius: 8px;">
+            <div id="share-minutes" style="font-size: 20px; font-weight: bold;">0</div>
+            <div style="font-size: 12px;">Minutes Focused This Week</div>
+        </div>
+        <p style="font-size: 10px; margin-top: 10px;">notion-focus-pro.github.io</p>
+    </div>
+
+    <script>
+        // State Management
+        let timeLeft;
+        let timerId = null;
+        let isWorkMode = true;
+        let isPro = false;
+        let stats = JSON.parse(localStorage.getItem('focusStats')) || {
+            streak: 0,
+            lastDate: null,
+            weeklyMinutes: [0, 0, 0, 0, 0, 0, 0] // Mon-Sun
+        };
+
+        const timerDisplay = document.getElementById('timer');
+        const startBtn = document.getElementById('start-btn');
+        const workInput = document.getElementById('work-time');
+        const breakInput = document.getElementById('break-time');
+        const statusLabel = document.getElementById('status-label');
+
+        // URL Params Config
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('w')) workInput.value = params.get('w');
+        if (params.get('b')) breakInput.value = params.get('b');
+        if (params.get('theme') === 'dark') document.body.classList.add('dark');
+
+        function updateTimerDisplay() {
+            const mins = Math.floor(timeLeft / 60);
+            const secs = timeLeft % 60;
+            timerDisplay.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function resetTimer() {
+            clearInterval(timerId);
+            timerId = null;
+            isWorkMode = true;
+            timeLeft = workInput.value * 60;
+            statusLabel.textContent = "Focus";
+            startBtn.textContent = "Start";
+            updateTimerDisplay();
+        }
+
+        // Initialize
+        timeLeft = workInput.value * 60;
+        updateTimerDisplay();
+
+        startBtn.onclick = () => {
+            if (timerId) {
+                clearInterval(timerId);
+                timerId = null;
+                startBtn.textContent = "Resume";
+            } else {
+                startBtn.textContent = "Pause";
+                timerId = setInterval(() => {
+                    timeLeft--;
+                    updateTimerDisplay();
+                    if (timeLeft <= 0) {
+                        clearInterval(timerId);
+                        timerId = null;
+                        if (isWorkMode) {
+                            logMinutes(parseInt(workInput.value));
+                            isWorkMode = false;
+                            timeLeft = breakInput.value * 60;
+                            statusLabel.textContent = "Break";
+                            alert("Focus session complete! Take a break.");
+                        } else {
+                            isWorkMode = true;
+                            timeLeft = workInput.value * 60;
+                            statusLabel.textContent = "Focus";
+                            alert("Break over! Time to focus.");
+                        }
+                        startBtn.textContent = "Start";
+                        updateTimerDisplay();
+                    }
+                }, 1000);
+            }
+        };
+
+        document.getElementById('reset-btn').onclick = resetTimer;
+        document.getElementById('update-times').onclick = resetTimer;
+
+        // Stats & Streak Logic
+        function logMinutes(mins) {
+            const today = new Date();
+            const dayIndex = (today.getDay() + 6) % 7; // Convert to 0=Mon, 6=Sun
+            const dateString = today.toDateString();
+
+            if (stats.lastDate !== dateString) {
+                if (stats.lastDate === new Date(Date.now() - 86400000).toDateString()) {
+                    stats.streak++;
+                } else if (stats.lastDate === null || stats.lastDate !== dateString) {
+                    stats.streak = 1;
+                }
+                stats.lastDate = dateString;
+            }
+
+            stats.weeklyMinutes[dayIndex] += mins;
+            localStorage.setItem('focusStats', JSON.stringify(stats));
+            updateProFeatures();
+        }
+
+        function updateProFeatures() {
+            if (!isPro) return;
+            document.getElementById('streak-count').textContent = stats.streak;
+            renderChart();
+        }
+
+        // Key Validation (Zero-Backend)
+        const keysUrl = 'https://raw.githubusercontent.com/Flynalyn/notion-focus-widget/main/keys.json';
+        
+        async function checkKey(key) {
+            try {
+                const response = await fetch(keysUrl);
+                const data = await response.json();
+                if (data.keys.includes(key)) {
+                    isPro = true;
+                    document.body.classList.add('is-pro');
+                    localStorage.setItem('focusProKey', key);
+                    updateProFeatures();
+                    document.getElementById('key-section').style.display = 'none';
+                } else {
+                    alert("Invalid Key");
+                }
+            } catch (e) {
+                console.error("Key check failed", e);
+            }
+        }
+
+        document.getElementById('save-key').onclick = () => {
+            checkKey(document.getElementById('license-key').value);
+        };
+
+        const savedKey = localStorage.getItem('focusProKey');
+        if (savedKey) checkKey(savedKey);
+
+        // Chart.js
+        let myChart = null;
+        function renderChart() {
+            const ctx = document.getElementById('weeklyChart').getContext('2d');
+            if (myChart) myChart.destroy();
+            myChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
+                    datasets: [{
+                        label: 'Minutes',
+                        data: stats.weeklyMinutes,
+                        backgroundColor: '#eb5757'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        }
+
+        // Theme Toggle
+        document.getElementById('theme-toggle').onclick = () => {
+            document.body.classList.toggle('dark');
+        };
+
+        // Share Card
+        document.getElementById('share-btn').onclick = () => {
+            const card = document.getElementById('share-card');
+            document.getElementById('share-streak').textContent = stats.streak;
+            document.getElementById('share-minutes').textContent = stats.weeklyMinutes.reduce((a,b) => a+b, 0);
+            document.getElementById('share-date').textContent = new Date().toLocaleDateString();
+            
+            card.style.position = 'static';
+            card.style.left = '0';
+            
+            html2canvas(card).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `focus-stats-${new Date().getTime()}.png`;
+                link.href = canvas.toDataURL();
+                link.click();
+                card.style.position = 'fixed';
+                card.style.left = '-9999px';
+            });
+        };
+    </script>
+</body>
+</html>
